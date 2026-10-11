@@ -41,6 +41,14 @@ class MemoryNoteStore implements NoteStore {
   }
 
   @override
+  Future<void> replaceForSync(String path, String expected, String text) async {
+    if (notes[path] != expected) {
+      throw FileSystemException('Note changed during sync', path);
+    }
+    notes[path] = text;
+  }
+
+  @override
   Future<void> create(String path, String text) async {
     final p = normalizeNotePath(path);
     if (notes.containsKey(p)) throw NoteExistsException(p);

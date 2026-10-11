@@ -6,6 +6,7 @@ Linux desktop build) the tree and the note sit side by side, as shown in
 [The main screen](#the-main-screen).
 
 - [The notes folder](#the-notes-folder)
+- [S3 sync](#s3-sync)
 - [The main screen](#the-main-screen)
 - [The default note](#the-default-note)
 - [Finding notes](#finding-notes)
@@ -39,9 +40,9 @@ On first start the notes folder is `~/Notes` on Linux and the app's own
 folder on Android (see [Storage on Android](#storage-on-android)). It is
 created if it does not exist. Change it in [Preferences](#preferences).
 
-TurboNotes has no sync of its own and no network access at all. To have the
-same notes on several devices, point it at a folder that a sync tool such as
-Syncthing keeps in sync.
+To have the same notes on several devices, use [optional S3 sync](#s3-sync),
+or point TurboNotes at a folder that a tool such as Syncthing keeps in sync.
+S3 sync is off by default. Editing, searching and exporting notes work offline.
 
 ## The main screen
 
@@ -395,9 +396,69 @@ back to discard the changes.
   switch editors on a note.
 - **Vi keys in the editor** (Linux only): edit notes with vi's modal keys;
   see [Vi keys](#vi-keys).
+- **S3 sync**: enable manual sync with your own S3-compatible bucket;
+  see below.
 
 On Android, Preferences also has **Choose folder with Android picker** and a
 menu of common folders; see below.
+
+## S3 sync
+
+In **Preferences**, turn on **S3 sync** and enter the HTTPS endpoint, region,
+bucket, access key and secret key. For Garage the region is usually `garage`.
+Create the bucket first and give the key read/write access to it. Save with the
+check mark. Configure the same endpoint, region and bucket on your other devices.
+Path-style S3 addressing works with Garage and other compatible servers.
+
+![Optional S3 sync settings](images/phone-sync-preferences.png)
+
+From the file tree's ⋮ menu, choose **Sync now**. TurboNotes saves and closes
+an open editor before syncing, and refreshes the file tree, tags and search
+afterwards. If the save fails or you cancel a changed-on-disk dialog, sync does
+not start. There is no automatic or background sync; turn the option off to
+hide the action and stop using the network.
+
+![Sync now in the file tree menu](images/phone-sync-menu.png)
+
+All `.md` and `.markdown` notes in the configured folder and its visible
+subfolders sync in both directions. Rename filenames with spaces at the ends
+or backslashes before syncing; sync checks all names before uploading any note.
+**Images and other attachments stay local.**
+**Deletions do not propagate**: sync restores a missing note from the bucket.
+A rename therefore leaves the old name on the other devices and restores it
+on the next sync. Use an empty, separate bucket for each collection of notes.
+
+Independent edits on different lines merge against their last common version,
+keeping the original Markdown and line endings. If edits overlap, or different
+versions have no common ancestor, TurboNotes keeps one version in the original
+note and saves each other version beside it as `name-sync-conflict.md`.
+An existing copy is kept; the next name is `name-2-sync-conflict.md`, and so on.
+Very long file names are shortened with a path hash to keep the suffix within
+the filesystem’s name limit.
+An unchanged conflict copy is reused when retrying a sync. Read the copies,
+combine the text yourself if needed, and sync the edited result.
+
+Concurrent uploads retain both versions for a later sync. A failed sync may
+have transferred some notes: they remain available, and you can choose **Sync
+now** again. If an external writer changes a note before replacement, sync
+stops. Each replacement retains the actual previous file as a hidden
+`.turbonotes-sync-backup-….md` beside the note. This also preserves an edit
+from a writer that already had that file open when it was replaced. To recover
+such a late edit, show hidden files in your file manager and copy the backup
+to a visible Markdown name. Recovery backups accumulate and are not synced;
+keep them until other writers have finished. Android folder providers must
+support renaming documents; otherwise updates fail safely. An error never
+silently overwrites an unsynced remote version. Revisions larger than 8 MiB and very large overlapping edits
+are refused or preserved as conflict copies.
+
+The bucket stores immutable JSON revisions under `turbonotes-sync/v1/`, including
+note paths, text and parent links. Path hashes keep object keys within S3’s
+length limit even for deep folders. It is a TurboNotes sync bucket, not a
+mirror of ordinary Markdown objects. History accumulates; do not edit or delete revision
+objects, which later merges need. Existing unrelated objects outside this prefix
+are untouched. Sync state lives in the app's private support data and is separate
+for each notes folder and destination. Credentials live in on-device app
+preferences; note contents in the bucket are not encrypted by TurboNotes.
 
 ## Storage on Android
 

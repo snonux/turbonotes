@@ -121,6 +121,11 @@ abstract class NoteStore {
   /// Replaces the content of an existing note.
   Future<void> write(String path, String text);
 
+  /// Replaces a synced note only if it still contains [expected]. Retains the
+  /// displaced file as a hidden recovery backup so even an already-open
+  /// external writer cannot lose its edits during replacement.
+  Future<void> replaceForSync(String path, String expected, String text);
+
   /// Creates a new note (and any missing parent folders). Throws
   /// [NoteExistsException] rather than overwrite.
   Future<void> create(String path, String text);

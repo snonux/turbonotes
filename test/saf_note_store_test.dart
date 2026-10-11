@@ -50,6 +50,25 @@ void main() {
     );
   });
 
+  test(
+    'sync replacement sends its expected text and does not fall back to write',
+    () async {
+      handler = (_) async =>
+          throw PlatformException(code: 'io', message: 'Rename unsupported');
+      await expectLater(
+        store.replaceForSync('a\\b', 'before', 'after'),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(calls.single.method, 'replaceForSync');
+      expect(calls.single.arguments, {
+        'treeUri': 'content://tree/notes',
+        'path': 'a/b.md',
+        'expected': 'before',
+        'text': 'after',
+      });
+    },
+  );
+
   test('provider errors map to the store exceptions', () async {
     handler = (call) async => throw PlatformException(
       code: call.method == 'read' ? 'not_found' : 'exists',

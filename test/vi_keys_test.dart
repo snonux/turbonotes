@@ -287,7 +287,10 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 200)),
     );
     await tester.pumpWidget(
-      MaterialApp(home: PreferencesScreen(preferences: prefs)),
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.linux),
+        home: PreferencesScreen(preferences: prefs),
+      ),
     );
     final toggle = find.byKey(const ValueKey('prefs.vi-keys'));
     for (var i = 0; i < 20 && toggle.evaluate().isEmpty; i++) {

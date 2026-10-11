@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'storage.dart';
+import 'sync_config.dart';
 
 const _kDirectory = 'Directory';
 const _kScopedTreeUri = 'ScopedTreeUri';
@@ -30,6 +31,33 @@ enum EditorMode {
 }
 
 class PreferencesService {
+  Future<SyncConfig> syncConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    return SyncConfig(
+      enabled: prefs.getBool('S3SyncEnabled') ?? false,
+      endpoint:
+          prefs.getString('S3Endpoint') ?? 'https://garage.f3s.buetow.org',
+      region: prefs.getString('S3Region') ?? 'garage',
+      bucket: prefs.getString('S3Bucket') ?? 'turbonotes',
+      accessKey: prefs.getString('S3AccessKey') ?? '',
+      secretKey: prefs.getString('S3SecretKey') ?? '',
+    );
+  }
+
+  Future<void> setSyncConfig(SyncConfig config) async {
+    final error = config.error;
+    if (config.enabled && error != null) throw FormatException(error);
+    final prefs = await SharedPreferences.getInstance();
+    // Enable last, so incomplete first-time settings never enable sync.
+    await prefs.setBool('S3SyncEnabled', false);
+    await prefs.setString('S3Endpoint', config.endpoint);
+    await prefs.setString('S3Region', config.region);
+    await prefs.setString('S3Bucket', config.bucket);
+    await prefs.setString('S3AccessKey', config.accessKey);
+    await prefs.setString('S3SecretKey', config.secretKey);
+    await prefs.setBool('S3SyncEnabled', config.enabled);
+  }
+
   Future<String> directory() async {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_kDirectory);

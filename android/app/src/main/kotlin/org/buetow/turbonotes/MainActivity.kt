@@ -69,7 +69,7 @@ class MainActivity : FlutterActivity() {
         safExecutor = executor
         val main = Handler(Looper.getMainLooper())
         MethodChannel(messenger, safNotesChannelName).setMethodCallHandler { call, result ->
-            if (call.method !in setOf("list", "read", "write", "create", "delete", "rename", "readBytes", "createBytes")) {
+            if (call.method !in setOf("list", "read", "write", "replaceForSync", "create", "delete", "rename", "readBytes", "createBytes")) {
                 result.notImplemented()
                 return@setMethodCallHandler
             }
@@ -80,6 +80,9 @@ class MainActivity : FlutterActivity() {
                         "list" -> notes.list(tree)
                         "read" -> notes.read(tree, call.requireString("path"))
                         "write" -> notes.write(tree, call.requireString("path"), call.requireString("text"))
+                        "replaceForSync" -> notes.replaceForSync(
+                            tree, call.requireString("path"), call.requireString("expected"), call.requireString("text"),
+                        )
                         "create" -> notes.create(tree, call.requireString("path"), call.requireString("text"))
                         "delete" -> notes.delete(tree, call.requireString("path"))
                         "readBytes" -> notes.readBytes(tree, call.requireString("path"))

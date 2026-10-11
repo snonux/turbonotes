@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../services/active_store.dart';
 import '../services/app_version.dart';
@@ -9,10 +10,14 @@ import '../services/directory_note_store.dart';
 import '../services/note_export.dart';
 import '../services/note_index.dart';
 import '../services/note_store.dart';
+import '../services/note_sync.dart';
 import '../services/note_tree.dart';
 import '../services/preferences.dart';
 import '../services/share_service.dart';
 import '../services/storage_access_service.dart';
+import '../services/sync_config.dart';
+import '../services/sync_objects.dart';
+import '../services/sync_state.dart';
 import '../widgets/feedback.dart';
 import '../widgets/note_dialogs.dart';
 import '../widgets/note_editor.dart';
@@ -26,6 +31,7 @@ import 'search_dialog.dart';
 const double kTwoPaneWidth = 760;
 
 enum _MenuAction {
+  sync,
   refresh,
   collapse,
   pin,
@@ -44,12 +50,16 @@ class HomeScreen extends StatefulWidget {
     required this.preferences,
     this.storeFactory,
     this.shareService = const ShareService(),
+    this.syncRunner,
   });
 
   final PreferencesService preferences;
 
   /// Hands notes to other apps; replaced in tests.
   final ShareService shareService;
+
+  /// Replaces the live S3 sync in widget tests.
+  final Future<SyncResult> Function(NoteStore, SyncConfig)? syncRunner;
 
   /// Optional override for tests; defaults to the folder in Preferences.
   final Future<NoteStore> Function()? storeFactory;
@@ -72,6 +82,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> _pinned = const [];
   List<String> _recent = const [];
   bool _viKeys = false;
+  bool _syncEnabled = false;
+  bool _syncing = false;
 
   /// Every note's text, for search and tags; null until first read.
   final ValueNotifier<NoteIndex?> _index = ValueNotifier(null);
@@ -137,7 +149,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Notes may have arrived (Syncthing) or gone while the app was away.
-    if (state == AppLifecycleState.resumed && !_loading && _store != null) {
+    if (state == AppLifecycleState.resumed &&
+        !_loading &&
+        !_syncing &&
+        _store != null) {
       _reload();
     }
   }
@@ -148,6 +163,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _pinned = await _prefs.pinned();
     _recent = await _prefs.recent();
     _viKeys = await _prefs.viKeys();
+    _syncEnabled = (await _prefs.syncConfig()).enabled;
     if (mounted) await _reload(reopenStore: true);
   }
 
@@ -155,7 +171,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// or a store swapped by Preferences) does not overwrite its result.
   int _reloadGeneration = 0;
 
-  Future<void> _reload({bool reopenStore = false}) async {
+  Future<void> _reload({
+    bool reopenStore = false,
+    bool afterSync = false,
+  }) async {
+    if (_syncing && !afterSync) return;
     final generation = ++_reloadGeneration;
     setState(() {
       _loading = true;
@@ -308,6 +328,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     TextSelection? match,
     bool focus = false,
   }) async {
+    if (_syncing) return;
     final store = _store;
     if (store == null) return;
     if (_twoPane && path == _selected && match == null && focus) {
@@ -371,6 +392,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _findNote() async {
+    if (_syncing) return;
     if (_notes.isEmpty) return;
     // Recent notes first, so an empty query is a quick switcher.
     final recent = _existing(_recent);
@@ -383,6 +405,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _searchText() async {
+    if (_syncing) return;
     if (_store == null || _error != null) return;
     final target = await showSearchDialog(context, _index);
     if (target != null && mounted) {
@@ -473,6 +496,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Asks for a new note's path, starting in [folder] or the open note's.
   Future<void> _newNote({String? folder}) async {
+    if (_syncing) return;
     final store = _store;
     if (store == null) return;
     folder ??= _currentFolder;
@@ -499,6 +523,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Opens the default note from Preferences, creating it on first use.
   Future<void> _openDefaultNote() async {
+    if (_syncing) return;
     final store = _store;
     if (store == null || _error != null) return;
     final path = _defaultNote;
@@ -524,6 +549,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Renames or moves [path]. From the phone note page, that page closes
   /// and the note reopens under its new name.
   Future<void> _rename(String path, {bool fromNotePage = false}) async {
+    if (_syncing) return;
     final store = _store;
     if (store == null) return;
     if (!fromNotePage && path == _selected) {
@@ -557,6 +583,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _delete(String path, {bool fromNotePage = false}) async {
+    if (_syncing) return;
     final store = _store;
     if (store == null) return;
     if (!await confirmDeleteNote(context, path) || !mounted) return;
@@ -615,6 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openPreferences() async {
+    if (_syncing) return;
     final editor = _editorKey.currentState;
     if (editor != null && !await editor.saveBeforeLeave()) return;
     if (!mounted) return;
@@ -653,8 +681,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       applicationVersion: version,
       applicationIcon: Image.asset('logo-small.png', width: 48, height: 48),
       applicationLegalese:
-          'Edit a folder of markdown notes. Local files only; no network, '
-          'no accounts, no telemetry.',
+          'Edit a folder of markdown notes. Optional S3 sync; no telemetry.',
     );
   }
 
@@ -703,6 +730,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _onMenu(_MenuAction action) {
     final selected = _selected;
     switch (action) {
+      case _MenuAction.sync:
+        _sync();
       case _MenuAction.refresh:
         _reload();
       case _MenuAction.collapse:
@@ -719,6 +748,73 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _openPreferences();
       case _MenuAction.about:
         _showAbout();
+    }
+  }
+
+  Future<void> _sync() async {
+    final store = _store;
+    if (_syncing || _loading || store == null || _notePageOpen) return;
+    // Lock the UI before awaiting the save, so shortcuts cannot open another
+    // editor or change the destination during the operation.
+    setState(() => _syncing = true);
+    _rootFocus.requestFocus();
+    try {
+      final editor = _editorKey.currentState;
+      if (editor != null && !await editor.saveBeforeLeave()) return;
+      if (!mounted) return;
+      setState(() {
+        _selected = null;
+        _editorDirty = false;
+      });
+      // Unmount the saved editor before sync can write to its note.
+      await WidgetsBinding.instance.endOfFrame;
+      final config = await _prefs.syncConfig();
+      if (!config.enabled) return;
+      final runner = widget.syncRunner;
+      final SyncResult result;
+      if (runner != null) {
+        result = await runner(store, config);
+      } else {
+        final folder = await _prefs.scopedFolder();
+        final identity = folder?.uri ?? await _prefs.directory();
+        final support = await getApplicationSupportDirectory();
+        final objects = S3SyncObjects(config);
+        try {
+          result = await NoteSync(
+            store: store,
+            objects: objects,
+            state: FileSyncState(support.path, config.scope(identity)),
+          ).run();
+        } finally {
+          objects.close();
+        }
+      }
+      _snack(
+        result.conflicts.isEmpty
+            ? 'Synced ${result.notes} notes'
+            : 'Synced ${result.notes} notes; ${result.conflicts.length} conflict copies: ${result.conflicts.join(', ')}',
+      );
+    } on UnsyncableNotePathException catch (error) {
+      _snack(
+        'Sync cannot use "${error.path}". Rename it to remove spaces at the '
+        'ends, backslashes or hidden path components, then sync again.',
+        error: true,
+      );
+    } catch (_) {
+      // Server/transport exceptions can contain authentication details.
+      _snack(
+        'Sync could not finish. Your notes are kept. Check the connection '
+        'and S3 settings, then sync again.',
+        error: true,
+      );
+    } finally {
+      if (mounted) {
+        // Drop stale cached text before building the post-sync search index.
+        _indexGeneration++;
+        _index.value = null;
+        await _reload(afterSync: true);
+        if (mounted) setState(() => _syncing = false);
+      }
     }
   }
 
@@ -795,6 +891,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               PopupMenuButton<_MenuAction>(
                 onSelected: _onMenu,
                 itemBuilder: (_) => [
+                  if (_syncEnabled)
+                    PopupMenuItem(
+                      value: _MenuAction.sync,
+                      enabled: !_syncing && !_loading && _error == null,
+                      child: Text(_syncing ? 'Syncing…' : 'Sync now'),
+                    ),
                   const PopupMenuItem(
                     value: _MenuAction.refresh,
                     child: Text('Refresh (F5)'),
@@ -835,7 +937,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ],
           ),
-          body: twoPane ? _twoPaneBody() : _treePane(),
+          body: _syncing && _selected == null
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Syncing notes…'),
+                    ],
+                  ),
+                )
+              : AbsorbPointer(
+                  absorbing: _syncing,
+                  child: twoPane ? _twoPaneBody() : _treePane(),
+                ),
         ),
       ),
     );

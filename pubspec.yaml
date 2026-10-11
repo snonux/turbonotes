@@ -17,6 +17,9 @@ dependencies:
   shared_preferences: ^2.3.2
   path_provider: ^2.1.4
   path: ^1.9.0
+  minio: ^3.5.8
+  crypto: ^3.0.7
+  http: ^1.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

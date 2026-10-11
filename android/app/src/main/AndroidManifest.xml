@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- No INTERNET permission: TurboNotes never talks to the network. -->
+    <!-- Used only by the optional, user-initiated S3 sync. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Needed to read/write a typed notes folder outside the app sandbox
          (e.g. a synced notes vault) on Android 11+. The Android folder picker
          and the app-specific default directory need no permission. -->

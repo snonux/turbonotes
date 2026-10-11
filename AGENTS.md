@@ -3,8 +3,9 @@
 TurboNotes is a Flutter app (Android primary, Linux desktop for development)
 that edits every Markdown file in one configured notes folder. It is a sibling
 of snonux/quicklog and shares its toolchain, signing and release conventions,
-but has no S3 or any other network code: the Android release manifest has no
-`INTERNET` permission, and nothing should add one.
+and supports optional S3 sync. Sync is disabled by default and runs only when
+the user chooses Sync now. The Android manifest has `INTERNET` permission for
+this feature; do not introduce other network use or telemetry.
 
 Before calling anything done: `flutter analyze` and `flutter test` must both be
 clean. For anything touching the Android build, build a release APK too --
@@ -41,6 +42,15 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
   so a command key can never type. The sidebar's own vi keys live in
   `NoteTreeView` and are always on.
 - `lib/services/fuzzy.dart` -- the fuzzy matcher behind the finder.
+- `lib/services/note_sync.dart` -- manual S3 sync of Markdown notes through
+  immutable content-addressed revisions and parent links. Never replace this
+  with overwriting a mutable remote note or manifest: Garage does not need
+  conditional writes for the revision protocol. `text_merge.dart` combines
+  independent edits against a common ancestor without reformatting source;
+  unresolved versions go to `*-sync-conflict.md`, never overwriting a copy.
+  Sync never propagates deletions. State is scoped to folder and destination
+  in app support data, outside the notes. Editors must be saved and closed
+  before sync runs; invalidate the search index afterwards.
 - `lib/services/note_index.dart`, `text_search.dart`, `tags.dart` -- the
   in-memory text index of all notes behind full-text search (typo tolerant)
   and the `#tag` tree. `HomeScreen` keeps the index current through the
@@ -104,3 +114,8 @@ clock where those futures never complete, and the test hangs. Widget tests use
 
 **`pumpAndSettle` times out while a save is pending**: the Save button shows a
 spinner, which never settles. Pump a fixed duration instead.
+
+Sync replacements use `NoteStore.replaceForSync`: preserve the displaced file
+as a hidden recovery backup (including open external writers), then create the
+replacement without truncating. Never revert this to a read/check/write sequence.
+Directory paths reject symlink components, consistently with note listing.

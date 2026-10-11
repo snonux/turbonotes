@@ -9,6 +9,7 @@ import '../services/saf_note_store.dart';
 import '../services/scoped_folder_service.dart';
 import '../services/storage.dart';
 import '../services/storage_access_service.dart';
+import '../services/sync_config.dart';
 import '../widgets/feedback.dart';
 
 /// Notes folder and editor settings. Pops `true` when something was saved.
@@ -31,6 +32,12 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   PreferencesService get _prefs => widget.preferences;
   final TextEditingController _dirController = TextEditingController();
   final TextEditingController _defaultNoteController = TextEditingController();
+  final _endpoint = TextEditingController();
+  final _region = TextEditingController();
+  final _bucket = TextEditingController();
+  final _accessKey = TextEditingController();
+  final _secretKey = TextEditingController();
+  bool _syncEnabled = false;
   EditorMode _mode = EditorMode.raw;
   bool _viKeys = false;
   bool _loaded = false;
@@ -60,6 +67,15 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     WidgetsBinding.instance.removeObserver(this);
     _dirController.dispose();
     _defaultNoteController.dispose();
+    for (final controller in [
+      _endpoint,
+      _region,
+      _bucket,
+      _accessKey,
+      _secretKey,
+    ]) {
+      controller.dispose();
+    }
     // Grants picked but never saved are not kept.
     for (final uri in _unsavedTreeUris) {
       _folderPicker.release(uri);
@@ -82,6 +98,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     final mode = await _prefs.editorMode();
     final viKeys = await _prefs.viKeys();
     final defaultNote = await _prefs.defaultNote();
+    final sync = await _prefs.syncConfig();
     final apiLevel = await StorageAccessService.storageApiLevel();
     // Closed while loading: the controllers are gone.
     if (!mounted) return;
@@ -92,6 +109,12 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     _mode = mode;
     _viKeys = viKeys;
     _defaultNoteController.text = defaultNote;
+    _syncEnabled = sync.enabled;
+    _endpoint.text = sync.endpoint;
+    _region.text = sync.region;
+    _bucket.text = sync.bucket;
+    _accessKey.text = sync.accessKey;
+    _secretKey.text = sync.secretKey;
     _androidStorageApiLevel = apiLevel;
     await _checkAccess();
     if (!mounted) return;
@@ -178,6 +201,18 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   }
 
   Future<void> _save() async {
+    final sync = SyncConfig(
+      enabled: _syncEnabled,
+      endpoint: _endpoint.text.trim().replaceFirst(RegExp(r'/$'), ''),
+      region: _region.text.trim(),
+      bucket: _bucket.text.trim(),
+      accessKey: _accessKey.text,
+      secretKey: _secretKey.text,
+    );
+    if (sync.enabled && sync.error != null) {
+      showSnack(context, sync.error!, error: true);
+      return;
+    }
     final folder = _scopedFolder;
     final directory = _dirController.text.trim();
     if (directory.isEmpty && folder == null) {
@@ -219,6 +254,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     await _prefs.setEditorMode(_mode);
     await _prefs.setViKeys(_viKeys);
     await _prefs.setDefaultNote(defaultNote);
+    await _prefs.setSyncConfig(sync);
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -385,7 +421,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
           ),
           // Vi's normal mode needs key presses, which an on-screen keyboard
           // does not send.
-          if (!Platform.isAndroid) ...[
+          if (theme.platform == TargetPlatform.linux) ...[
             const SizedBox(height: 16),
             SwitchListTile(
               key: const ValueKey('prefs.vi-keys'),
@@ -397,6 +433,45 @@ class _PreferencesScreenState extends State<PreferencesScreen>
               ),
               value: _viKeys,
               onChanged: (v) => setState(() => _viKeys = v),
+            ),
+          ],
+          const SizedBox(height: 24),
+          SwitchListTile(
+            key: const ValueKey('prefs.s3-enabled'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('S3 sync'),
+            subtitle: const Text(
+              'Sync Markdown notes when you choose Sync now in the file tree menu.',
+            ),
+            value: _syncEnabled,
+            onChanged: (value) => setState(() => _syncEnabled = value),
+          ),
+          if (_syncEnabled) ...[
+            for (final field in [
+              ('endpoint', 'HTTPS endpoint', _endpoint),
+              ('region', 'Region', _region),
+              ('bucket', 'Bucket', _bucket),
+              ('access-key', 'Access key', _accessKey),
+              ('secret-key', 'Secret key', _secretKey),
+            ]) ...[
+              const SizedBox(height: 12),
+              TextField(
+                key: ValueKey('prefs.s3-${field.$1}'),
+                controller: field.$3,
+                obscureText: field.$1 == 'secret-key',
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: field.$2,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'Use the same bucket on every device. Independent edits merge; '
+              'overlapping edits become -sync-conflict.md notes. '
+              'Sync restores missing notes and does not delete them. Images stay local.',
             ),
           ],
         ],

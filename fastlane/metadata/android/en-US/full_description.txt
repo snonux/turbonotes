@@ -16,4 +16,4 @@ TurboNotes edits a folder of plain Markdown files. Point it at any folder, for e
 <li>Use the Android folder picker for a notes vault without broad storage permission, or type a path.</li>
 </ul>
 
-TurboNotes has no network access at all: no accounts, no sync service, no telemetry. Your notes are just files.
+Optional S3 sync sends Markdown notes to your own S3-compatible bucket when you choose Sync now. Independent edits merge; unresolved edits become conflict notes. Sync is off by default. Images stay local and deletions are not propagated. No telemetry; your local notes remain plain files.

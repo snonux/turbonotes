@@ -10,6 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 class NoteExistsException(message: String) : IOException(message)
 
@@ -158,12 +159,49 @@ internal class SafNotes(private val resolver: ContentResolver) {
         writeDoc(uri(tree, requireNote(tree, path)), text)
     }
 
+    /**
+     * Keep the displaced document itself, not a read/copy snapshot: a native
+     * capture with an open descriptor may still be appending to it. Providers
+     * without document rename support fail before any content is replaced.
+     */
+    fun replaceForSync(raw: String, path: String, expected: String, text: String) {
+        val tree = tree(raw, write = true)
+        val source = uri(tree, requireNote(tree, path))
+        if (decodeUtf8(readDoc(source, path), path) != expected) {
+            throw IOException("Note changed during sync; sync again.")
+        }
+        val name = ".turbonotes-sync-backup-${UUID.randomUUID()}.md"
+        val backup = DocumentsContract.renameDocument(resolver, source, name)
+            ?: throw IOException("The folder provider cannot retain a sync recovery backup.")
+        forget(raw, path)
+        try {
+            if (displayName(backup) != name) {
+                throw IOException("The folder provider did not retain the requested backup name.")
+            }
+            if (decodeUtf8(readDoc(backup, path), path) != expected) {
+                throw IOException("Note changed during sync; sync again.")
+            }
+            create(raw, path, text)
+        } catch (e: Exception) {
+            // Use create rather than a renaming overwrite; leave the actual
+            // backup document alive for writers that already have it open.
+            try {
+                if (find(tree, path) == null) {
+                    create(raw, path, decodeUtf8(readDoc(backup, path), path))
+                }
+            } catch (_: Exception) {
+                // The recovery backup remains even if restoration fails.
+            }
+            throw e
+        }
+    }
+
     private fun writeDoc(uri: Uri, text: String) = writeBytes(uri, text.toByteArray(Charsets.UTF_8))
 
-    private fun writeBytes(uri: Uri, bytes: ByteArray) {
+    private fun writeBytes(uri: Uri, bytes: ByteArray, newlyCreated: Boolean = false) {
         // "wt" truncates. Plain "w" does not truncate on every provider, which
         // would leave the tail of a longer old file behind a shorter new one.
-        val output = resolver.openOutputStream(uri, "wt")
+        val output = resolver.openOutputStream(uri, if (newlyCreated) "wa" else "wt")
             ?: throw IOException("Cannot write the file.")
         output.use { it.write(bytes) }
     }
@@ -173,7 +211,7 @@ internal class SafNotes(private val resolver: ContentResolver) {
 
     private fun createNote(raw: String, path: String, bytes: ByteArray) {
         if (!isNote(path)) throw IllegalArgumentException("Notes must end in .md or .markdown.")
-        createDocument(raw, path) { writeBytes(it, bytes) }
+        createDocument(raw, path) { writeBytes(it, bytes, newlyCreated = true) }
     }
 
     /** Reads an image next to the notes (pasted or shared into a note). */
@@ -185,7 +223,7 @@ internal class SafNotes(private val resolver: ContentResolver) {
     /** Stores a new image next to the notes; never overwrites. */
     fun createBytes(raw: String, path: String, bytes: ByteArray) {
         if (!isImage(path)) throw IllegalArgumentException("Not an image: $path")
-        createDocument(raw, path) { writeBytes(it, bytes) }
+        createDocument(raw, path) { writeBytes(it, bytes, newlyCreated = true) }
     }
 
     /**
@@ -216,18 +254,18 @@ internal class SafNotes(private val resolver: ContentResolver) {
         val created = DocumentsContract.createDocument(
             resolver, uri(tree, parent), "application/octet-stream", name,
         ) ?: throw IOException("Cannot create $path.")
-        try {
-            val actual = displayName(created)
-            if (actual != name) throw IOException("The folder's provider named the file $actual instead of $name.")
-            fill(created)
-        } catch (e: Exception) {
+        val actual = displayName(created)
+        if (actual != name) {
             try {
                 DocumentsContract.deleteDocument(resolver, created)
             } catch (_: Exception) {
-                // Leave the empty document; the error below is what matters.
+                // Report the provider naming error even if cleanup fails.
             }
-            throw e
+            throw IOException("The folder's provider named the file $actual instead of $name.")
         }
+        // Preserve a partial new document on I/O failure, as the directory
+        // store does: another writer may already have appended to it.
+        fill(created)
     }
 
     fun delete(raw: String, path: String) {

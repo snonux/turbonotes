@@ -28,8 +28,9 @@ notes; TurboNotes edits the ones you already have.
   without opening the app.
 - **Autosave**, and a note changed on disk meanwhile is never overwritten
   silently.
-- **No network**: no accounts, no telemetry, not even the `INTERNET`
-  permission.
+- **Optional S3 sync**: manually sync Markdown notes with your own bucket,
+  merge independent edits and keep conflict copies. Disabled by default;
+  no telemetry.
 
 **[Read the usage guide](docs/usage.md)** for a full tour with screenshots.
 

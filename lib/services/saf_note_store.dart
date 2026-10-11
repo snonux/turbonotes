@@ -65,6 +65,14 @@ class SafNoteStore implements NoteStore {
       _call<void>('write', {'path': normalizeNotePath(path), 'text': text});
 
   @override
+  Future<void> replaceForSync(String path, String expected, String text) =>
+      _call<void>('replaceForSync', {
+        'path': normalizeNotePath(path),
+        'expected': expected,
+        'text': text,
+      });
+
+  @override
   Future<void> create(String path, String text) =>
       _call<void>('create', {'path': normalizeNotePath(path), 'text': text});
 
