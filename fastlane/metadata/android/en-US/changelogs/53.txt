@@ -1,0 +1,1 @@
+Optional manual S3 sync for Markdown notes. Independent edits merge automatically; unresolved versions become -sync-conflict.md copies. Configure your own S3-compatible bucket in Preferences, then choose Sync now. Sync is off by default. Images stay local and deleted notes are restored. Recovery backups protect edits made by other apps.
