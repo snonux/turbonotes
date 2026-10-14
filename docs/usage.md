@@ -379,6 +379,22 @@ reloads with the new text when you return to it, or you are asked as in
 [When a note changed on disk](#when-a-note-changed-on-disk) if you had
 unsaved edits.
 
+## Editing files from other apps
+
+On Android, TurboNotes also edits text and Markdown files that belong to
+another app. In [File Browser](https://github.com/snonux/filebrowser), for
+example, open a file's menu and choose **Edit in TurboNotes**; any app that
+offers *Edit* or *Open with* for a text file can hand it over the same way.
+
+The file opens on its own screen, outside the notes folder, with the usual
+editor. **Save**, leaving with Back, and switching away all write the text
+back to the app the file came from, which in File Browser's case uploads it
+to the server. Back returns to that app. Markdown files open in your
+preferred editor mode, other text files in Raw. Images cannot be added to
+such a file, since TurboNotes can only reach the file itself, not the folder
+around it. A file opened with *Open with* from an app that allows only
+viewing says *Opened read-only*, and saving it fails.
+
 ## Preferences
 
 Open **Preferences** from the ⋮ menu. Press the check mark to save, or go

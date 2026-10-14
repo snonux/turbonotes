@@ -1,0 +1,1 @@
+Edit text and Markdown files from other apps: choose Edit in TurboNotes in File Browser (or Edit / Open with in any app) and every save goes back to the app the file came from, which uploads it to the server.
