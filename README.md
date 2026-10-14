@@ -24,6 +24,9 @@ notes; TurboNotes edits the ones you already have.
 - **Share** a note to other apps as text, PDF or image.
 - **Vi keys** on the Linux desktop build: vi-style navigation in the
   sidebar, and optional modal editing (normal, insert, visual) in the editor.
+- **Edit files from other apps**, such as text and Markdown files on a
+  [File Browser](https://github.com/snonux/filebrowser) server: every save
+  goes back to the app the file came from.
 - **Quick capture** from the home-screen widget or the Android share sheet,
   without opening the app.
 - **Autosave**, and a note changed on disk meanwhile is never overwritten

@@ -33,6 +33,8 @@ class MainActivity : FlutterActivity() {
     private val clipboardChannelName = "org.buetow.turbonotes/clipboard"
     private val shareChannelName = "org.buetow.turbonotes/share"
     private val imagesChannelName = "org.buetow.turbonotes/images"
+    private val externalChannelName = "org.buetow.turbonotes/external"
+    private var externalChannel: MethodChannel? = null
     private val requestLegacyStorage = 4203
     private val requestNoteTree = 4204
     private val requestPickImages = 4205
@@ -107,6 +109,38 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        // A text file another app handed over with "Edit" or "Open with".
+        val documents = ExternalDocuments(contentResolver)
+        val external = MethodChannel(messenger, externalChannelName)
+        externalChannel = external
+        external.setMethodCallHandler { call, result ->
+            if (call.method == "initialDocument") {
+                result.success(documents.describe(intent))
+                return@setMethodCallHandler
+            }
+            if (call.method != "read" && call.method != "write") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            executor.execute {
+                try {
+                    val uri = call.requireString("uri")
+                    val value: Any? = if (call.method == "read") {
+                        documents.read(uri)
+                    } else {
+                        documents.write(uri, call.requireString("text"))
+                        null
+                    }
+                    main.post { result.success(value) }
+                } catch (e: SecurityException) {
+                    main.post { result.error("access_denied", e.message, null) }
+                } catch (e: FileNotFoundException) {
+                    main.post { result.error("not_found", e.message, null) }
+                } catch (e: Exception) {
+                    main.post { result.error("io", e.message ?: e.toString(), null) }
+                }
+            }
+        }
         MethodChannel(messenger, clipboardChannelName).setMethodCallHandler { call, result ->
             if (call.method != "readImage") {
                 result.notImplemented()
@@ -169,6 +203,13 @@ class MainActivity : FlutterActivity() {
                 result.error("bad_args", e.message, null)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val document = ExternalDocuments(contentResolver).describe(intent) ?: return
+        setIntent(intent)
+        externalChannel?.invokeMethod("open", document)
     }
 
     private fun share(intent: Intent) {

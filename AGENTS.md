@@ -67,6 +67,16 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
   `ShareProvider` capture file, so no camera permission is needed) and
   `org.buetow.turbonotes/share` (`MainActivity.kt`, files served by
   `ShareProvider.kt`).
+- Files other apps hand over (`ACTION_EDIT`/`ACTION_VIEW` of a `text/*`
+  content URI, e.g. File Browser's "Edit in TurboNotes"): `MainActivity`'s
+  intent filter, `ExternalDocuments.kt` and the
+  `org.buetow.turbonotes/external` channel (`initialDocument`, `read`,
+  `write`, and `open` for one arriving while running).
+  `lib/services/external_document.dart` wraps the URI in a one-note
+  `ExternalNoteStore`, so `ExternalNotePage` reuses `NoteEditor` and its
+  autosave and conflict check; `main.dart` opens it instead of
+  `HomeScreen`. Writing back to the URI is the whole contract: the other app
+  takes it from there.
 - Android quick capture is native Kotlin, not Flutter, so it opens without
   starting the engine: `CaptureWidget.kt` (home-screen widget) and
   `CaptureActivity.kt` (the dialog, also the share target) append through
