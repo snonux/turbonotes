@@ -71,7 +71,7 @@ class MainActivity : FlutterActivity() {
         safExecutor = executor
         val main = Handler(Looper.getMainLooper())
         MethodChannel(messenger, safNotesChannelName).setMethodCallHandler { call, result ->
-            if (call.method !in setOf("list", "read", "write", "replaceForSync", "create", "delete", "rename", "readBytes", "createBytes")) {
+            if (call.method !in setOf("list", "scan", "read", "readMany", "write", "replaceForSync", "create", "delete", "rename", "readBytes", "createBytes")) {
                 result.notImplemented()
                 return@setMethodCallHandler
             }
@@ -80,6 +80,14 @@ class MainActivity : FlutterActivity() {
                     val tree = call.requireString("treeUri")
                     val value: Any? = when (call.method) {
                         "list" -> notes.list(tree)
+                        "scan" -> notes.scan(tree).let { scan ->
+                            val paths = scan.keys.toList()
+                            mapOf("paths" to paths, "versions" to paths.map { scan[it] })
+                        }
+                        "readMany" -> notes.readMany(
+                            tree,
+                            call.argument<List<String>>("paths") ?: throw IllegalArgumentException("paths is required."),
+                        )
                         "read" -> notes.read(tree, call.requireString("path"))
                         "write" -> notes.write(tree, call.requireString("path"), call.requireString("text"))
                         "replaceForSync" -> notes.replaceForSync(

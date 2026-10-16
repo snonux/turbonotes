@@ -142,3 +142,19 @@ abstract class NoteStore {
   /// [NoteExistsException] rather than overwrite.
   Future<void> createBytes(String path, Uint8List bytes);
 }
+
+/// A store that can say cheaply which notes changed since its last listing
+/// and read many notes in one go, so the search index is built off the UI
+/// isolate and a refresh only reads what changed (see `NoteIndex.load`).
+///
+/// Implementations must be sendable to another isolate, and work there
+/// (platform channels do once `BackgroundIsolateBinaryMessenger` is set up).
+abstract interface class VersionedNoteStore implements NoteStore {
+  /// Every note path, like [list], with a version string that changes
+  /// whenever the note does (its modification time and size).
+  Future<Map<String, String>> listVersions();
+
+  /// The text of each of [paths], in order; null for one that cannot be
+  /// read.
+  Future<List<String?>> readMany(List<String> paths);
+}

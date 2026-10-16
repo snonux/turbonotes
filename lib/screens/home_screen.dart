@@ -7,12 +7,14 @@ import 'package:path_provider/path_provider.dart';
 import '../services/active_store.dart';
 import '../services/app_version.dart';
 import '../services/directory_note_store.dart';
+import '../services/listing_cache.dart';
 import '../services/note_export.dart';
 import '../services/note_index.dart';
 import '../services/note_store.dart';
 import '../services/note_sync.dart';
 import '../services/note_tree.dart';
 import '../services/preferences.dart';
+import '../services/saf_note_store.dart';
 import '../services/share_service.dart';
 import '../services/storage_access_service.dart';
 import '../services/sync_config.dart';
@@ -51,7 +53,12 @@ class HomeScreen extends StatefulWidget {
     this.storeFactory,
     this.shareService = const ShareService(),
     this.syncRunner,
+    this.listingCache,
   });
+
+  /// Remembers the folder's listing, so the next start shows the sidebar
+  /// before the folder has been listed again. None in tests.
+  final ListingCache? listingCache;
 
   final PreferencesService preferences;
 
@@ -71,6 +78,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   NoteStore? _store;
   List<String> _notes = const [];
+
+  /// [_notes] for lookups: the sidebar checks pins and recents on every
+  /// rebuild, which a list of thousands of notes makes slow.
+  Set<String> _noteSet = const {};
   NoteFolder _tree = NoteFolder.build(const []);
   final Set<String> _expanded = {};
   bool _loading = true;
@@ -92,7 +103,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Only notes with this tag (or one below it) show in the tree.
   String? _tagFilter;
   final Set<String> _expandedTags = {};
-  final Set<SidebarSection> _collapsedSections = {};
+
+  /// Tags start folded away: with many notes the tag tree is long, and it
+  /// is only worked out once someone opens it.
+  final Set<SidebarSection> _collapsedSections = {SidebarSection.tags};
 
   /// A search match to put the caret on when its note opens.
   SearchTarget? _jumpOnOpen;
@@ -187,6 +201,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             await (widget.storeFactory?.call() ?? configuredNoteStore(_prefs));
         _index.value = null;
         _tagFilter = null;
+        if (generation != _reloadGeneration) return;
+        await _showCachedListing(_store!, generation);
       }
       if (generation != _reloadGeneration) return;
       final store = _store!;
@@ -199,38 +215,89 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           store.root,
         );
       }
-      final notes = await store.list();
+      Map<String, String>? versions;
+      final List<String> notes;
+      if (store is VersionedNoteStore) {
+        versions = await store.listVersions();
+        notes = versions.keys.toList()..sort();
+      } else {
+        notes = await store.list();
+      }
       if (!mounted || generation != _reloadGeneration) return;
+      final changed = !_sameList(notes, _notes);
       setState(() {
-        _notes = notes;
-        _tree = _buildTree();
-        if (_selected != null && !notes.contains(_selected)) _selected = null;
+        _setNotes(notes);
+        if (_selected != null && !_noteSet.contains(_selected)) {
+          _selected = null;
+        }
         _loading = false;
       });
+      if (changed) widget.listingCache?.save(_cacheKey(store), notes);
       // The tree is back; let it have the keyboard if nothing else does.
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _keepShortcutsReachable(),
       );
-      _buildIndex(store, notes);
+      _buildIndex(store, notes, versions);
     } catch (e) {
       if (!mounted || generation != _reloadGeneration) return;
       _indexGeneration++;
       _index.value = null;
       setState(() {
         _error = e;
-        _notes = const [];
-        _tree = NoteFolder.build(const []);
+        _setNotes(const []);
         _selected = null;
         _loading = false;
       });
     }
   }
 
-  /// Reads every note for search and tags, in the background. The previous
-  /// index stays usable meanwhile; a newer reload wins.
-  Future<void> _buildIndex(NoteStore store, List<String> notes) async {
+  void _setNotes(List<String> notes) {
+    _notes = notes;
+    _noteSet = notes.toSet();
+    _tree = _buildTree();
+  }
+
+  static bool _sameList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Which folder a listing in the [ListingCache] belongs to.
+  static String _cacheKey(NoteStore store) =>
+      store is SafNoteStore ? store.treeUri : store.label;
+
+  /// On start, shows the folder as it was last listed while it is listed
+  /// again: on a large folder, or a slow document provider, that listing
+  /// takes a while, and the sidebar would sit empty meanwhile.
+  Future<void> _showCachedListing(NoteStore store, int generation) async {
+    final cache = widget.listingCache;
+    if (cache == null || _notes.isNotEmpty) return;
+    final cached = await cache.load(_cacheKey(store));
+    if (cached == null || cached.isEmpty) return;
+    if (!mounted || generation != _reloadGeneration || _notes.isNotEmpty) {
+      return;
+    }
+    setState(() => _setNotes(cached));
+  }
+
+  /// Reads the notes for search and tags, in the background. Notes whose
+  /// version did not change since the last read are kept, not read again.
+  /// The previous index stays usable meanwhile; a newer reload wins.
+  Future<void> _buildIndex(
+    NoteStore store,
+    List<String> notes,
+    Map<String, String>? versions,
+  ) async {
     final generation = ++_indexGeneration;
-    final index = await NoteIndex.load(store, notes);
+    final index = await NoteIndex.load(
+      store,
+      notes,
+      versions: versions,
+      previous: _index.value,
+    );
     if (!mounted || generation != _indexGeneration) return;
     // Keep whatever the open editor holds as saved: it may be newer than a
     // read that raced a save.
@@ -268,7 +335,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final index = _index.value;
     if (index == null || index[path]?.text == text) return;
     index.put(path, text);
-    if (mounted) setState(() => _tree = _buildTree());
+    // Tags may have changed; the tree itself only with a tag filter.
+    if (mounted) {
+      setState(() {
+        if (_tagFilter != null) _tree = _buildTree();
+      });
+    }
   }
 
   /// A note's text from the search index, so it opens without a disk read.
@@ -276,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   List<String> _existing(List<String> paths) => [
     for (final p in paths)
-      if (_notes.contains(p)) p,
+      if (_noteSet.contains(p)) p,
   ];
 
   void _remember(String path) {
@@ -505,7 +577,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'New note',
       action: 'Create',
       initial: folder.isEmpty ? '' : '$folder/',
-      exists: _notes.contains,
+      exists: _noteSet.contains,
     );
     if (path == null || !mounted) return;
     final text = '# ${displayName(path)}\n\n';
@@ -532,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _editorKey.currentState?.focusAtEnd();
       return;
     }
-    if (!_notes.contains(path)) {
+    if (!_noteSet.contains(path)) {
       try {
         await store.create(path, '# ${displayName(path)}\n\n');
       } on NoteExistsException {
@@ -562,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       title: 'Rename note',
       action: 'Rename',
       initial: path,
-      exists: _notes.contains,
+      exists: _noteSet.contains,
     );
     if (target == null || target == path || !mounted) return;
     try {
@@ -1000,7 +1072,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onNoteMenu: _noteMenu,
         pinned: _existing(_pinned),
         recent: _existing(_recent),
-        tags: _index.value?.tagTree,
+        // Worked out only while the section is open.
+        tags: _collapsedSections.contains(SidebarSection.tags)
+            ? null
+            : _index.value?.tagTree,
+        hasTags: _index.value?.hasTags ?? false,
         tagFilter: _tagFilter,
         onTagFilter: _setTagFilter,
         expandedTags: _expandedTags,

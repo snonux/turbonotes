@@ -58,9 +58,15 @@ The sidebar has four sections. Tap a section's header to fold it away.
 - **Pinned**: notes you [pinned](#pinned-and-recent-notes).
 - **Recent**: the last few notes you opened.
 - **Tags**: every [`#tag`](#tags) in your notes, with the number of notes
-  using it.
+  using it. It starts folded away; tap its header to open it.
 - **Notes**: the file tree. Folders come first, each with the number of
-  notes it holds (counting subfolders). Tap a folder to open or close it.
+  notes it holds (counting subfolders). Folders start closed; tap one to
+  open or close it.
+
+On start the sidebar shows the folder as it was when you last used the app,
+and refreshes it a moment later. Search and tags are ready once every note
+has been read in the background; after that, only notes that changed are
+read again.
 
 The title shows the notes folder, or the open note's name and its path in
 the notes folder. A `•` after the name means it has unsaved edits. The

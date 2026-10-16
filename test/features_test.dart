@@ -135,6 +135,12 @@ void main() {
 
   testWidgets('tags list with counts and filter the tree', (tester) async {
     await pumpHome(tester);
+    // The Tags section starts folded away, so a large tag list costs
+    // nothing at startup.
+    expect(find.byKey(const ValueKey('section:tags')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tag:shopping')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('section:tags')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('tag:shopping')), findsOneWidget);
     expect(find.byKey(const ValueKey('tag:work')), findsOneWidget);
     // Nested tags fold under their parent.
@@ -162,6 +168,8 @@ void main() {
 
   testWidgets('a saved #tag shows up in the tag list', (tester) async {
     await pumpHome(tester);
+    await tester.tap(find.byKey(const ValueKey('section:tags')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('note:inbox.md')));
     await tester.pumpAndSettle();
     await tester.enterText(field(), '# Inbox\n\n#errands now\n');

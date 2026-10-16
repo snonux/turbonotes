@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/external_note_page.dart';
 import 'screens/home_screen.dart';
 import 'services/external_document.dart';
+import 'services/listing_cache.dart';
 import 'services/preferences.dart';
 
 Future<void> main() async {
@@ -65,7 +66,10 @@ class _TurboNotesAppState extends State<TurboNotesApp> {
               document: document,
               preferences: widget.preferences,
             )
-          : HomeScreen(preferences: widget.preferences),
+          : HomeScreen(
+              preferences: widget.preferences,
+              listingCache: FileListingCache(),
+            ),
     );
   }
 }

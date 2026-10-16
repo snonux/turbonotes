@@ -1,0 +1,1 @@
+Starts much faster on large notes folders: the sidebar shows straight away, notes are read and tags parsed in the background without stalling the screen, and returning to the app only re-reads notes that changed. The Tags section now starts collapsed.

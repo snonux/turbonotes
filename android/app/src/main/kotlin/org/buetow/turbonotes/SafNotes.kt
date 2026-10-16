@@ -36,7 +36,13 @@ internal fun decodeUtf8(bytes: ByteArray, path: String): String = try {
  * every segment is checked again: a provider must never be asked for "..".
  */
 internal class SafNotes(private val resolver: ContentResolver) {
-    private data class Doc(val id: String, val name: String, val isDir: Boolean)
+    private data class Doc(
+        val id: String,
+        val name: String,
+        val isDir: Boolean,
+        val modified: Long = 0,
+        val size: Long = 0,
+    )
 
     /**
      * Document ids of the files the last [list] of each tree found, by path.
@@ -72,7 +78,13 @@ internal class SafNotes(private val resolver: ContentResolver) {
 
     private fun children(tree: Uri, parentId: String): List<Doc> {
         val uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
-        val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE)
+        val columns = arrayOf(
+            Document.COLUMN_DOCUMENT_ID,
+            Document.COLUMN_DISPLAY_NAME,
+            Document.COLUMN_MIME_TYPE,
+            Document.COLUMN_LAST_MODIFIED,
+            Document.COLUMN_SIZE,
+        )
         val cursor = resolver.query(uri, columns, null, null, null)
             ?: throw IOException("Cannot list the selected folder.")
         cursor.use {
@@ -85,7 +97,8 @@ internal class SafNotes(private val resolver: ContentResolver) {
             while (it.moveToNext()) {
                 val id = it.getString(0) ?: continue
                 val name = it.getString(1) ?: continue
-                result.add(Doc(id, name, it.getString(2) == Document.MIME_TYPE_DIR))
+                // getLong reads a missing modification time or size as 0.
+                result.add(Doc(id, name, it.getString(2) == Document.MIME_TYPE_DIR, it.getLong(3), it.getLong(4)))
             }
             return result
         }
@@ -110,9 +123,16 @@ internal class SafNotes(private val resolver: ContentResolver) {
 
     private fun uri(tree: Uri, doc: Doc): Uri = DocumentsContract.buildDocumentUriUsingTree(tree, doc.id)
 
-    fun list(raw: String): List<String> {
+    fun list(raw: String): List<String> = scan(raw).keys.sorted()
+
+    /**
+     * Every note path with a version ("modified:size") that changes when the
+     * note does, so the app only reads notes that changed since the last
+     * scan. Both come with the folder listing, at no extra cost.
+     */
+    fun scan(raw: String): Map<String, String> {
         val tree = tree(raw, write = false)
-        val out = mutableListOf<String>()
+        val out = HashMap<String, String>()
         val ids = HashMap<String, String>()
         val pending = ArrayDeque<Pair<String, String>>()
         pending.add(rootId(tree) to "")
@@ -124,20 +144,36 @@ internal class SafNotes(private val resolver: ContentResolver) {
                 if (child.isDir) {
                     pending.add(child.id to rel)
                 } else {
-                    if (isNote(child.name)) out.add(rel)
+                    if (isNote(child.name)) out[rel] = "${child.modified}:${child.size}"
                     if (isNote(child.name) || isImage(child.name)) ids[rel] = child.id
                 }
             }
         }
         known[raw] = ids
-        out.sort()
         return out
+    }
+
+    /**
+     * The text of each of [paths], null for one that cannot be read: one
+     * platform call and one permission check for many notes, which is what
+     * makes indexing a large folder bearable.
+     */
+    fun readMany(raw: String, paths: List<String>): List<String?> {
+        val tree = tree(raw, write = false)
+        return paths.map { path ->
+            try {
+                decodeUtf8(readRaw(tree, raw, path), path)
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     fun read(raw: String, path: String): String = decodeUtf8(readRaw(raw, path), path)
 
-    private fun readRaw(raw: String, path: String): ByteArray {
-        val tree = tree(raw, write = false)
+    private fun readRaw(raw: String, path: String): ByteArray = readRaw(tree(raw, write = false), raw, path)
+
+    private fun readRaw(tree: Uri, raw: String, path: String): ByteArray {
         segments(path)
         known[raw]?.get(path)?.let { id ->
             try {

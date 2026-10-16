@@ -12,22 +12,18 @@ class NoteFolder {
   final Map<String, NoteFolder> _folders = {};
   final List<String> _notes = [];
 
-  List<NoteFolder> get folders {
-    final list = _folders.values.toList();
-    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return list;
-  }
+  // A tree is never changed once built, so the sorted lists and counts are
+  // worked out once: the sidebar asks for them on every rebuild.
+  late final List<NoteFolder> folders = _folders.values.toList()
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
   /// Full relative note paths directly inside this folder.
-  List<String> get notes {
-    final list = List.of(_notes);
-    list.sort(
+  late final List<String> notes = List.of(_notes)
+    ..sort(
       (a, b) => baseName(a).toLowerCase().compareTo(baseName(b).toLowerCase()),
     );
-    return list;
-  }
 
-  int get noteCount =>
+  late final int noteCount =
       _notes.length + _folders.values.fold(0, (sum, f) => sum + f.noteCount);
 
   static NoteFolder build(Iterable<String> notePaths) {

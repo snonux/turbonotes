@@ -54,7 +54,14 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
 - `lib/services/note_index.dart`, `text_search.dart`, `tags.dart` -- the
   in-memory text index of all notes behind full-text search (typo tolerant)
   and the `#tag` tree. `HomeScreen` keeps the index current through the
-  editor's `onSaved`.
+  editor's `onSaved`. Startup speed on large folders depends on: the
+  `VersionedNoteStore` stores (directory and SAF) scanning with a version
+  per note (`mtime:size`), `NoteIndex.load` reading and parsing notes on
+  background isolates (SAF through `BackgroundIsolateBinaryMessenger` and
+  the batched `readMany` call) and keeping unchanged notes on a refresh,
+  and `ListingCache` showing the last listing at once on start. Keep heavy
+  per-note work off the UI isolate, and keep the Tags section collapsed by
+  default so its tree is only built on demand.
 - `lib/services/note_export.dart` -- renders a note offscreen (its own
   `PipelineOwner`/`BuildOwner`; GlobalKeys do not work there) to one PNG or
   to an A4 PDF of page images, written by hand with `dart:io`'s zlib.

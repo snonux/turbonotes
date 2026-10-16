@@ -34,6 +34,7 @@ class NoteTreeView extends StatefulWidget {
     this.pinned = const [],
     this.recent = const [],
     this.tags,
+    this.hasTags = false,
     this.tagFilter,
     this.onTagFilter,
     this.expandedTags = const {},
@@ -60,8 +61,13 @@ class NoteTreeView extends StatefulWidget {
   /// Recently opened notes, newest first; only ones that exist.
   final List<String> recent;
 
-  /// The tag tree; null or empty hides the Tags section.
+  /// The tag tree; null or empty hides the Tags section unless [hasTags].
+  /// May be null while the section is collapsed.
   final TagNode? tags;
+
+  /// Shows the Tags section header even without [tags], for a collapsed
+  /// section whose tree has not been worked out.
+  final bool hasTags;
   final String? tagFilter;
 
   /// Picks a tag to filter the tree by, or null to show every note.
@@ -171,9 +177,9 @@ class _NoteTreeViewState extends State<NoteTreeView> {
       }
     }
     final tagRoot = w.tags;
-    if (tagRoot != null && tagRoot.children.isNotEmpty) {
+    if (w.hasTags || (tagRoot != null && tagRoot.children.isNotEmpty)) {
       rows.add(_header(context, SidebarSection.tags, 'Tags', Icons.tag));
-      if (!collapsed.contains(SidebarSection.tags)) {
+      if (tagRoot != null && !collapsed.contains(SidebarSection.tags)) {
         void walkTags(TagNode node, int depth) {
           for (final child in node.children) {
             rows.add(
