@@ -69,11 +69,9 @@ class TagNode {
   /// Notes carrying this tag or one nested below it.
   final Set<String> notes = {};
 
-  List<TagNode> get children {
-    final list = _children.values.toList();
-    list.sort((a, b) => a.name.compareTo(b.name));
-    return list;
-  }
+  /// Sorted once: a built tree never changes.
+  late final List<TagNode> children = _children.values.toList()
+    ..sort((a, b) => a.name.compareTo(b.name));
 
   /// Builds the tree from each note's tags.
   static TagNode build(Map<String, Set<String>> tagsByNote) {

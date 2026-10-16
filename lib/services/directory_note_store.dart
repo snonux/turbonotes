@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' show Random;
 import 'dart:typed_data';
 
@@ -7,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'note_store.dart';
 
 /// Notes in a plain filesystem directory (Linux, or a typed path on Android).
-class DirectoryNoteStore implements NoteStore {
+class DirectoryNoteStore implements VersionedNoteStore {
   DirectoryNoteStore(this.root);
 
   final String root;
@@ -34,30 +35,30 @@ class DirectoryNoteStore implements NoteStore {
   }
 
   @override
-  Future<List<String>> list() async {
-    final dir = Directory(root);
-    if (!await dir.exists()) {
-      throw FileSystemException('The notes folder does not exist', root);
-    }
-    final notes = <String>[];
-    await _scan(dir, '', notes);
-    notes.sort();
-    return notes;
+  Future<List<String>> list() async =>
+      (await listVersions()).keys.toList()..sort();
+
+  /// Walks the folder on a background isolate with synchronous calls, which
+  /// is several times faster than an async listing and keeps a large folder
+  /// from stalling the UI.
+  @override
+  Future<Map<String, String>> listVersions() {
+    final root = this.root;
+    return Isolate.run(() => _scanFolder(root));
   }
 
-  // Manual recursion rather than list(recursive: true): hidden folders such
-  // as .git are skipped without being walked, and links are never followed,
-  // so a symlink loop cannot hang the scan.
-  Future<void> _scan(Directory dir, String prefix, List<String> out) async {
-    await for (final entity in dir.list(followLinks: false)) {
-      final name = p.basename(entity.path);
-      if (isHiddenSegment(name)) continue;
-      final rel = prefix.isEmpty ? name : '$prefix/$name';
-      if (entity is Directory) {
-        await _scan(entity, rel, out);
-      } else if (entity is File && isNotePath(name)) {
-        out.add(rel);
-      }
+  @override
+  Future<List<String?>> readMany(List<String> paths) async => [
+    for (final path in paths) _readOrNull(path),
+  ];
+
+  /// Synchronous: [readMany] runs on a background isolate, where blocking
+  /// reads are the quickest way through thousands of small files.
+  String? _readOrNull(String path) {
+    try {
+      return _file(path).readAsStringSync();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -176,4 +177,33 @@ class DirectoryNoteStore implements NoteStore {
       rethrow;
     }
   }
+}
+
+/// Every note under [root] with its version (`mtime:size`).
+///
+/// Manual recursion rather than list(recursive: true): hidden folders such
+/// as .git are skipped without being walked, and links are never followed,
+/// so a symlink loop cannot hang the scan.
+Map<String, String> _scanFolder(String root) {
+  final dir = Directory(root);
+  if (!dir.existsSync()) {
+    throw FileSystemException('The notes folder does not exist', root);
+  }
+  final notes = <String, String>{};
+  void scan(Directory dir, String prefix) {
+    for (final entity in dir.listSync(followLinks: false)) {
+      final name = p.basename(entity.path);
+      if (isHiddenSegment(name)) continue;
+      final rel = prefix.isEmpty ? name : '$prefix/$name';
+      if (entity is Directory) {
+        scan(entity, rel);
+      } else if (entity is File && isNotePath(name)) {
+        final stat = entity.statSync();
+        notes[rel] = '${stat.modified.microsecondsSinceEpoch}:${stat.size}';
+      }
+    }
+  }
+
+  scan(dir, '');
+  return notes;
 }
