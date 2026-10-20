@@ -34,7 +34,9 @@ class MainActivity : FlutterActivity() {
     private val shareChannelName = "org.buetow.turbonotes/share"
     private val imagesChannelName = "org.buetow.turbonotes/images"
     private val externalChannelName = "org.buetow.turbonotes/external"
+    private val linksChannelName = "org.buetow.turbonotes/links"
     private var externalChannel: MethodChannel? = null
+    private var linksChannel: MethodChannel? = null
     private val requestLegacyStorage = 4203
     private val requestNoteTree = 4204
     private val requestPickImages = 4205
@@ -149,6 +151,13 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        // A note another app asked for, such as Player's "Note in TurboNotes".
+        val links = MethodChannel(messenger, linksChannelName)
+        linksChannel = links
+        links.setMethodCallHandler { call, result ->
+            if (call.method == "initialLink") result.success(NoteLinks.describe(intent))
+            else result.notImplemented()
+        }
         MethodChannel(messenger, clipboardChannelName).setMethodCallHandler { call, result ->
             if (call.method != "readImage") {
                 result.notImplemented()
@@ -215,6 +224,12 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        val link = NoteLinks.describe(intent)
+        if (link != null) {
+            setIntent(intent)
+            linksChannel?.invokeMethod("open", link)
+            return
+        }
         val document = ExternalDocuments(contentResolver).describe(intent) ?: return
         setIntent(intent)
         externalChannel?.invokeMethod("open", document)
