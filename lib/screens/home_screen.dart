@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../services/directory_note_store.dart';
 import '../services/listing_cache.dart';
 import '../services/note_export.dart';
 import '../services/note_index.dart';
+import '../services/note_link.dart';
 import '../services/note_store.dart';
 import '../services/note_sync.dart';
 import '../services/note_tree.dart';
@@ -54,7 +56,11 @@ class HomeScreen extends StatefulWidget {
     this.shareService = const ShareService(),
     this.syncRunner,
     this.listingCache,
+    this.links,
   });
+
+  /// Notes other apps ask to open, created when missing (see [NoteLink]).
+  final Stream<NoteLink>? links;
 
   /// Remembers the folder's listing, so the next start shows the sidebar
   /// before the folder has been listed again. None in tests.
@@ -121,7 +127,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// would each take the other's saves for changes on disk.
   bool _notePageOpen = false;
 
+  /// Completes when the [NotePage] open now has closed.
+  Future<void>? _notePageClosed;
+
   PreferencesService get _prefs => widget.preferences;
+
+  StreamSubscription<NoteLink>? _links;
+
+  /// A link that arrived before the notes folder was open.
+  NoteLink? _pendingLink;
+  bool _started = false;
 
   /// Holds focus for the screen's shortcuts when nothing inside has it.
   final FocusNode _rootFocus = FocusNode(debugLabel: 'home');
@@ -147,6 +162,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     FocusManager.instance.addListener(_keepShortcutsReachable);
+    _links = widget.links?.listen(_onLink);
     _init();
   }
 
@@ -154,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     FocusManager.instance.removeListener(_keepShortcutsReachable);
+    _links?.cancel();
     _rootFocus.dispose();
     _treeFocus.dispose();
     _index.dispose();
@@ -179,6 +196,63 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _viKeys = await _prefs.viKeys();
     _syncEnabled = (await _prefs.syncConfig()).enabled;
     if (mounted) await _reload(reopenStore: true);
+    _started = true;
+    final link = _pendingLink;
+    _pendingLink = null;
+    if (link != null && mounted) await _openLink(link);
+  }
+
+  void _onLink(NoteLink link) {
+    if (_started) {
+      _openLink(link);
+    } else {
+      _pendingLink = link;
+    }
+  }
+
+  /// Opens the note another app linked to, creating it on first use with
+  /// the link's title as its heading.
+  Future<void> _openLink(NoteLink link) async {
+    final store = _store;
+    if (store == null || _error != null) return;
+    if (_syncing) {
+      _snack('Sync is running. Open ${link.path} again when it is done.');
+      return;
+    }
+    final String path;
+    try {
+      path = normalizeNotePath(link.path);
+    } on InvalidNotePathException catch (e) {
+      _snack('Cannot open ${link.path}: ${e.message}', error: true);
+      return;
+    }
+    _focusOnOpen = path;
+    // Already on screen: a second page with an editor on the same note would
+    // take the other one's saves for changes on disk.
+    if (path == _selected && (_twoPane || _notePageOpen)) {
+      _editorKey.currentState?.focusAtEnd();
+      return;
+    }
+    // On a phone another note is open on its own page: close it the way
+    // Back does, which saves it first.
+    if (_notePageOpen) {
+      final closed = _notePageClosed;
+      await Navigator.of(context).maybePop();
+      await closed;
+      if (!mounted) return;
+    }
+    if (!_noteSet.contains(path)) {
+      try {
+        await store.create(path, '# ${link.title ?? displayName(path)}\n\n');
+      } on NoteExistsException {
+        // Created elsewhere since the last refresh: just open it.
+      } catch (e) {
+        _snack('Could not create $path: ${describeError(e)}', error: true);
+        return;
+      }
+      await _reload();
+    }
+    if (mounted) await _open(path);
   }
 
   /// Counts reloads, so one that finishes after a newer one (a slow folder,
@@ -434,6 +508,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _selected = path;
       _notePageOpen = true;
     });
+    final closed = Completer<void>();
+    _notePageClosed = closed.future;
     await Navigator.of(context).push(
       _NoteRoute(
         builder: (_) => NotePage(
@@ -454,6 +530,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    closed.complete();
     if (mounted) setState(() => _notePageOpen = false);
   }
 

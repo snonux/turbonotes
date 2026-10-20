@@ -84,6 +84,13 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
   autosave and conflict check; `main.dart` opens it instead of
   `HomeScreen`. Writing back to the URI is the whole contract: the other app
   takes it from there.
+- Notes other apps ask for by path (Player's "Note in TurboNotes" opens
+  `Book-And-Podcast-Notes/TITLE.md`): the `org.buetow.turbonotes.OPEN_NOTE`
+  intent (`NoteLinks.kt`, extras `...extra.PATH` and `...extra.TITLE`) and
+  the `org.buetow.turbonotes/links` channel (`initialLink`, and `open` for
+  one arriving while running). `lib/services/note_link.dart` feeds them to
+  `HomeScreen.links`, which validates the path with `normalizeNotePath`,
+  creates a missing note (never overwriting) and opens it.
 - Android quick capture is native Kotlin, not Flutter, so it opens without
   starting the engine: `CaptureWidget.kt` (home-screen widget) and
   `CaptureActivity.kt` (the dialog, also the share target) append through

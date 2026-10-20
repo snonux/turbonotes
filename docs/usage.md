@@ -401,6 +401,25 @@ such a file, since TurboNotes can only reach the file itself, not the folder
 around it. A file opened with *Open with* from an app that allows only
 viewing says *Opened read-only*, and saving it fails.
 
+## Notes opened from other apps
+
+Other apps can ask TurboNotes to open a note in your notes folder by its
+path, and TurboNotes creates the note first if it does not exist yet, with
+a heading the app suggests. [Player](https://github.com/snonux/player) uses
+this: while an audiobook or a podcast episode plays, its **Book note in
+TurboNotes** or **Episode note in TurboNotes** button opens
+`Book-And-Podcast-Notes/TITLE.md`, so every book and episode gets its own
+note to jot thoughts into. The note opens with the caret at its end; a note
+open at that moment is saved and closed first, as with Back.
+
+For app developers: start an activity with the action
+`org.buetow.turbonotes.OPEN_NOTE`, the package `org.buetow.turbonotes`, the
+string extra `org.buetow.turbonotes.extra.PATH` (the path relative to the
+notes folder; `.md` is added when missing) and, optionally,
+`org.buetow.turbonotes.extra.TITLE` (the heading of a new note). Paths
+outside the notes folder are refused, and an existing note is never
+overwritten.
+
 ## Preferences
 
 Open **Preferences** from the ⋮ menu. Press the check mark to save, or go
