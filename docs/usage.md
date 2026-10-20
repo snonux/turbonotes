@@ -18,6 +18,7 @@ Linux desktop build) the tree and the note sit side by side, as shown in
 - [Creating, renaming and deleting notes](#creating-renaming-and-deleting-notes)
 - [Sharing a note](#sharing-a-note)
 - [Quick capture on Android](#quick-capture-on-android)
+- [Notes opened from other apps](#notes-opened-from-other-apps)
 - [Notes on audiobooks in Player](#notes-on-audiobooks-in-player)
 - [Preferences](#preferences)
 - [Storage on Android](#storage-on-android)

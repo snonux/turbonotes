@@ -1,0 +1,1 @@
+Take notes on audiobooks: while the Player app has a title open, the note editor shows rewind 10 seconds and pause / continue buttons (Alt+R, Alt+P on a keyboard); allow it once in Preferences > Player controls. Other apps can open a note by path (org.buetow.turbonotes.OPEN_NOTE), creating it on first use; Player uses this for Book-And-Podcast-Notes/TITLE.md.
