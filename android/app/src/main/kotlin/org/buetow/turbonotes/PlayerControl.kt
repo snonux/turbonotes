@@ -134,6 +134,13 @@ internal class PlayerControl(private val context: Context, private val channel: 
         val controller = player ?: return false
         if (status() == null) return false
         action(controller)
+        // The editor shows the expected state at once. Should Player ignore
+        // the command, its state never changes and no callback comes, so
+        // send the actual state again shortly.
+        main.postDelayed({
+            lastStatus = null
+            publish()
+        }, 1500)
         return true
     }
 
