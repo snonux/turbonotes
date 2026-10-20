@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 
 import '../services/note_store.dart';
+import '../services/player_control.dart';
 import '../services/preferences.dart';
 import '../services/saf_note_store.dart';
 import '../services/scoped_folder_service.dart';
@@ -18,10 +19,14 @@ class PreferencesScreen extends StatefulWidget {
     super.key,
     required this.preferences,
     this.scopedFolderService,
+    this.player,
   });
 
   final PreferencesService preferences;
   final ScopedFolderService? scopedFolderService;
+
+  /// Remote control for the Player app; [PlayerControl.instance] if null.
+  final PlayerControl? player;
 
   @override
   State<PreferencesScreen> createState() => _PreferencesScreenState();
@@ -52,6 +57,8 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   ScopedFolderService get _folderPicker =>
       widget.scopedFolderService ?? const ScopedFolderService();
 
+  PlayerControl get _player => widget.player ?? PlayerControl.instance;
+
   bool get _canPickFolder =>
       Platform.isAndroid || widget.scopedFolderService != null;
 
@@ -59,6 +66,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _player.start();
     _load();
   }
 
@@ -435,6 +443,13 @@ class _PreferencesScreenState extends State<PreferencesScreen>
               onChanged: (v) => setState(() => _viKeys = v),
             ),
           ],
+          if (_player.supported) ...[
+            const SizedBox(height: 16),
+            ListenableBuilder(
+              listenable: _player,
+              builder: (context, _) => _playerControlsTile(),
+            ),
+          ],
           const SizedBox(height: 24),
           SwitchListTile(
             key: const ValueKey('prefs.s3-enabled'),
@@ -476,6 +491,34 @@ class _PreferencesScreenState extends State<PreferencesScreen>
           ],
         ],
       ),
+    );
+  }
+
+  /// Player controls are on once Android lets TurboNotes see Player's
+  /// playback; the user grants (and revokes) that in Android's settings.
+  Widget _playerControlsTile() {
+    final granted = _player.accessGranted;
+    return ListTile(
+      key: const ValueKey('prefs.player-controls'),
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.headphones),
+      title: const Text('Player controls'),
+      subtitle: Text(
+        granted
+            ? 'On. While the Player app has a title open, the note editor '
+                  'shows rewind 10 seconds and pause / continue.'
+            : 'Pause, continue and rewind audiobooks playing in the Player '
+                  'app from the note editor. Needs notification access, '
+                  "which Android requires to see another app's playback; "
+                  'no notification is read.',
+      ),
+      trailing: granted
+          ? const Icon(Icons.check_circle_outline)
+          : TextButton(
+              onPressed: _player.requestAccess,
+              child: const Text('Allow'),
+            ),
+      onTap: _player.requestAccess,
     );
   }
 }

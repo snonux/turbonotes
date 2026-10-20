@@ -91,6 +91,16 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
   one arriving while running). `lib/services/note_link.dart` feeds them to
   `HomeScreen.links`, which validates the path with `normalizeNotePath`,
   creates a missing note (never overwriting) and opens it.
+- Player controls (the Player audiobook app, snonux/player, package
+  `zone.foo.player_android`): `PlayerControl.kt` follows Player's media
+  session through `MediaSessionManager.getActiveSessions`, which needs
+  notification access for the empty `PlayerSessionListener` service; the
+  user grants it from Preferences. Channel `org.buetow.turbonotes/player`
+  (`status`, `requestAccess`, `pause`, `play`, `rewind`; `changed` pushed to
+  Dart). `lib/services/player_control.dart` holds the state; `NoteEditor`
+  shows its bar only while Player has a titled, not stopped session. Never
+  bind Player's MediaBrowserService instead: audio_service would start
+  Player's Flutter engine headless. Player itself needs no changes.
 - Android quick capture is native Kotlin, not Flutter, so it opens without
   starting the engine: `CaptureWidget.kt` (home-screen widget) and
   `CaptureActivity.kt` (the dialog, also the share target) append through

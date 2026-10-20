@@ -11,6 +11,7 @@ import '../services/clipboard_image.dart';
 import '../services/device_images.dart';
 import '../services/note_store.dart';
 import '../services/note_tree.dart';
+import '../services/player_control.dart';
 import '../services/preferences.dart';
 import 'feedback.dart';
 import 'format_toolbar.dart';
@@ -46,6 +47,7 @@ class NoteEditor extends StatefulWidget {
     this.viKeys = false,
     this.onLeave,
     this.cachedText,
+    this.player,
   });
 
   final NoteStore store;
@@ -76,6 +78,10 @@ class NoteEditor extends StatefulWidget {
   /// null. With it the note shows at once, without waiting for the disk;
   /// the read that follows only brings in changes made meanwhile.
   final String? Function(String path)? cachedText;
+
+  /// Remote control for the Player app; [PlayerControl.instance] if null.
+  /// Its controls show while Player has a title open.
+  final PlayerControl? player;
 
   @override
   State<NoteEditor> createState() => NoteEditorState();
@@ -112,6 +118,8 @@ class NoteEditorState extends State<NoteEditor> {
   final ScrollController _scroll = ScrollController();
   late EditorMode _mode = widget.initialMode;
   late AttachmentCache _images = _newCache();
+
+  PlayerControl get _player => widget.player ?? PlayerControl.instance;
 
   AttachmentCache _newCache() =>
       AttachmentCache(widget.store, onLoaded: _controller.relayout);
@@ -152,6 +160,8 @@ class NoteEditorState extends State<NoteEditor> {
     _controller.addListener(_onChanged);
     _focus.addListener(_onFocus);
     _vi.addListener(_onViChanged);
+    _player.addListener(_onPlayerChanged);
+    _player.start();
     _lifecycle; // Created lazily; touch it so it starts listening.
     _load();
   }
@@ -163,6 +173,13 @@ class NoteEditorState extends State<NoteEditor> {
     if (oldWidget.store != widget.store || oldWidget.path != widget.path) {
       _images.dispose();
       _images = _newCache();
+    }
+    if (oldWidget.player != widget.player) {
+      (oldWidget.player ?? PlayerControl.instance).removeListener(
+        _onPlayerChanged,
+      );
+      _player.addListener(_onPlayerChanged);
+      _player.start();
     }
     if (oldWidget.viKeys != widget.viKeys) {
       _vi.reset();
@@ -190,6 +207,7 @@ class NoteEditorState extends State<NoteEditor> {
     _focus.dispose();
     _vi.removeListener(_onViChanged);
     _vi.dispose();
+    _player.removeListener(_onPlayerChanged);
     _promptText.dispose();
     _promptFocus.dispose();
     _scroll.dispose();
@@ -199,6 +217,10 @@ class NoteEditorState extends State<NoteEditor> {
   void _onFocus() => _controller.focused = _focus.hasFocus;
 
   void _onViChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onPlayerChanged() {
     if (mounted) setState(() {});
   }
 
@@ -732,6 +754,12 @@ class NoteEditorState extends State<NoteEditor> {
         _ifEditable(() => _controller.toggleWrap('*')),
     const SingleActivator(LogicalKeyboardKey.keyE, control: true): () =>
         setMode(_mode == EditorMode.raw ? EditorMode.wysiwyg : EditorMode.raw),
+    if (_player.status != null) ...{
+      const SingleActivator(LogicalKeyboardKey.keyP, alt: true):
+          _player.togglePlayback,
+      const SingleActivator(LogicalKeyboardKey.keyR, alt: true): () =>
+          _player.rewind(),
+    },
   };
 
   @override
@@ -805,8 +833,54 @@ class NoteEditorState extends State<NoteEditor> {
               ),
             ),
           ),
+          if (_player.status case final status?) _playerBar(theme, status),
           if (widget.viKeys) _viBar(theme, base),
         ],
+      ),
+    );
+  }
+
+  /// Controls for the audiobook playing in Player, next to the keyboard.
+  /// Counted as part of the field, so tapping them keeps the keyboard up.
+  Widget _playerBar(ThemeData theme, PlayerStatus status) {
+    return TextFieldTapRegion(
+      child: Material(
+        key: const ValueKey('player-bar'),
+        color: theme.colorScheme.surfaceContainerHigh,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 12, right: 4),
+          child: Row(
+            children: [
+              Icon(
+                Icons.headphones,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  status.title,
+                  key: const ValueKey('player-title'),
+                  style: theme.textTheme.labelLarge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('player-rewind'),
+                tooltip: 'Rewind 10 seconds (Alt+R)',
+                icon: const Icon(Icons.replay_10),
+                onPressed: () => _player.rewind(),
+              ),
+              IconButton(
+                key: const ValueKey('player-play-pause'),
+                tooltip: status.playing ? 'Pause (Alt+P)' : 'Continue (Alt+P)',
+                icon: Icon(status.playing ? Icons.pause : Icons.play_arrow),
+                onPressed: _player.togglePlayback,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

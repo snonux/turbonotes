@@ -91,6 +91,18 @@
             android:authorities="org.buetow.turbonotes.share"
             android:exported="false"
             android:grantUriPermissions="true"/>
+        <!-- Notification access is what Android asks before an app may see
+             other apps' media sessions: the note editor's Player controls
+             (pause, continue, rewind) need it. No notification is read. -->
+        <service
+            android:name=".PlayerSessionListener"
+            android:label="@string/player_controls_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
