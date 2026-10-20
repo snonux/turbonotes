@@ -35,6 +35,8 @@ class MainActivity : FlutterActivity() {
     private val imagesChannelName = "org.buetow.turbonotes/images"
     private val externalChannelName = "org.buetow.turbonotes/external"
     private val linksChannelName = "org.buetow.turbonotes/links"
+    private val playerChannelName = "org.buetow.turbonotes/player"
+    private var playerControl: PlayerControl? = null
     private var externalChannel: MethodChannel? = null
     private var linksChannel: MethodChannel? = null
     private val requestLegacyStorage = 4203
@@ -181,6 +183,12 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+        val playerChannel = MethodChannel(messenger, playerChannelName)
+        val player = PlayerControl(applicationContext, playerChannel)
+        playerControl = player
+        playerChannel.setMethodCallHandler { call, result ->
+            player.handle(call.method, call.argument<Int>("seconds"), result)
+        }
         MethodChannel(messenger, imagesChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "pickImages" -> pickImages(result)
@@ -261,6 +269,8 @@ class MainActivity : FlutterActivity() {
         // Let writes already handed to the provider finish.
         safExecutor?.shutdown()
         safExecutor = null
+        playerControl?.dispose()
+        playerControl = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

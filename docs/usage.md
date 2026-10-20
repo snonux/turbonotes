@@ -18,6 +18,8 @@ Linux desktop build) the tree and the note sit side by side, as shown in
 - [Creating, renaming and deleting notes](#creating-renaming-and-deleting-notes)
 - [Sharing a note](#sharing-a-note)
 - [Quick capture on Android](#quick-capture-on-android)
+- [Notes opened from other apps](#notes-opened-from-other-apps)
+- [Notes on audiobooks in Player](#notes-on-audiobooks-in-player)
 - [Preferences](#preferences)
 - [Storage on Android](#storage-on-android)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -420,6 +422,31 @@ notes folder; `.md` is added when missing) and, optionally,
 outside the notes folder are refused, and an existing note is never
 overwritten.
 
+## Notes on audiobooks in Player
+
+TurboNotes can pause, rewind and continue the
+[Player](https://github.com/snonux/player) app on Android, so you can listen
+to an audiobook and take notes on it without switching apps.
+
+Turn it on once: in **Preferences**, press **Allow** next to **Player
+controls**. Android opens its *Notification access* page; allow TurboNotes
+there. Android asks for this before one app may see what another app plays.
+TurboNotes reads no notifications. To turn the controls off again, take the
+access away on the same page (pressing the Player controls row opens it).
+
+From then on, whenever Player has a title open, a bar at the bottom of the
+note editor shows the title with two buttons:
+
+- ⟲10 jumps back 10 seconds.
+- ⏸ pauses, and ▶ continues where it stopped.
+
+The bar sits right above the on-screen keyboard, and pressing its buttons
+leaves the keyboard where it is. With a hardware keyboard, `Alt+R` rewinds
+10 seconds and `Alt+P` pauses or continues. The bar disappears when Player
+closes the title or stops.
+
+![Player controls in the note editor](images/phone-player-controls.png)
+
 ## Preferences
 
 Open **Preferences** from the ⋮ menu. Press the check mark to save, or go
@@ -439,6 +466,9 @@ back to discard the changes.
   see [Vi keys](#vi-keys).
 - **S3 sync**: enable manual sync with your own S3-compatible bucket;
   see below.
+- **Player controls** (Android only): pause, rewind and continue the Player
+  app from the note editor; see
+  [Notes on audiobooks in Player](#notes-on-audiobooks-in-player).
 
 On Android, Preferences also has **Choose folder with Android picker** and a
 menu of common folders; see below.
@@ -534,6 +564,7 @@ With a keyboard, on a tablet or the Linux desktop:
 | `Ctrl+E` | Switch between Raw and WYSIWYG |
 | `Ctrl+B` / `Ctrl+I` | Bold / italics |
 | `Ctrl+V` | Paste text, or an image when the clipboard holds no text |
+| `Alt+R` / `Alt+P` | While [Player](#notes-on-audiobooks-in-player) has a title open: rewind 10 seconds / pause or continue |
 | In the finder and search: arrows, `Ctrl+N` / `Ctrl+P`, `Ctrl+J` / `Ctrl+K`, `Page Up` / `Page Down` | Move through the matches |
 | In the finder and search: `Enter` / `Esc` | Open the note / close |
 | In the editor: `Esc` (with vi keys: `Ctrl+W h`) | Back to the sidebar; edits stay, unsaved until you save or leave the note |
