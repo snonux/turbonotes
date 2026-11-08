@@ -58,9 +58,50 @@ class NoteIndex {
 
   NoteIndex._(this._notes);
 
+  /// An index of [texts] read at [versions] (an empty version counts as
+  /// unknown), with every note's tags and words worked out and the
+  /// vocabulary built, a share of the notes on each of a few isolates. For
+  /// a background isolate, which then hands the finished index to the UI
+  /// isolate without a copy (see [IndexCache]).
+  static Future<NoteIndex> prepared(
+    Map<String, String> texts,
+    Map<String, String> versions,
+  ) async {
+    final paths = texts.keys.toList();
+    final workers = _workers(paths.length);
+    final size = (paths.length / workers).ceil();
+    final shares = await Future.wait([
+      for (var start = 0; start < paths.length; start += size)
+        _prepareShare({
+          for (final path in paths.skip(start).take(size))
+            path: (texts[path]!, versions[path] ?? ''),
+        }),
+    ]);
+    final notes = <String, IndexedNote>{
+      for (final (share, _) in shares) ...share,
+    };
+    // The largest share's vocabulary is the base; the others add to it.
+    final vocabularies = [for (final (_, words) in shares) words]
+      ..sort((a, b) => b.length.compareTo(a.length));
+    final vocabulary = vocabularies.isEmpty
+        ? <String, int>{}
+        : vocabularies.first;
+    for (final other in vocabularies.skip(1)) {
+      other.forEach((w, n) => vocabulary[w] = (vocabulary[w] ?? 0) + n);
+    }
+    return NoteIndex._({for (final path in paths) path: ?notes[path]})
+      .._vocabulary = vocabulary;
+  }
+
   final Map<String, IndexedNote> _notes;
   TagNode? _tagTree;
-  Map<String, Set<String>>? _vocabulary;
+
+  /// Every word with the number of notes it occurs in.
+  Map<String, int>? _vocabulary;
+
+  /// How many notes the [load] that made this index read or dropped; 0
+  /// when it kept the previous index as it was.
+  int changes = 0;
 
   /// Indexes every note in [paths]. A note that cannot be read is left out
   /// rather than failing the whole index.
@@ -95,9 +136,30 @@ class NoteIndex {
       notes.addAll(read);
     }
     // In the order of [paths], like a fresh index.
-    return NoteIndex._({
+    final index = NoteIndex._({
       for (final path in paths)
         if (notes.containsKey(path)) path: notes[path]!,
+    });
+    final old = previous?._notes ?? const <String, IndexedNote>{};
+    index.changes =
+        stale.length +
+        old.keys.where((p) => !index._notes.containsKey(p)).length;
+    index._carryVocabulary(previous);
+    return index;
+  }
+
+  /// Takes over [previous]'s vocabulary, changed only for the notes that
+  /// differ, instead of building it again from every note on the next
+  /// typo-tolerant search.
+  void _carryVocabulary(NoteIndex? previous) {
+    final old = previous?._vocabulary;
+    if (old == null) return;
+    _vocabulary = Map.of(old);
+    previous!._notes.forEach((path, note) {
+      if (!identical(_notes[path], note)) _forgetWords(path, note);
+    });
+    _notes.forEach((path, note) {
+      if (!identical(previous._notes[path], note)) _addWords(path, note);
     });
   }
 
@@ -172,10 +234,13 @@ class NoteIndex {
     final vocabulary = _vocabulary;
     if (vocabulary == null || note == null) return;
     for (final w in note.words) {
-      final paths = vocabulary[w];
-      if (paths == null) continue;
-      paths.remove(path);
-      if (paths.isEmpty) vocabulary.remove(w);
+      final count = vocabulary[w];
+      if (count == null) continue;
+      if (count <= 1) {
+        vocabulary.remove(w);
+      } else {
+        vocabulary[w] = count - 1;
+      }
     }
   }
 
@@ -183,7 +248,7 @@ class NoteIndex {
     final vocabulary = _vocabulary;
     if (vocabulary == null) return;
     for (final w in note.words) {
-      (vocabulary[w] ??= {}).add(path);
+      vocabulary[w] = (vocabulary[w] ?? 0) + 1;
     }
   }
 
@@ -199,16 +264,17 @@ class NoteIndex {
       if (e.value.tags.any((t) => tagMatches(t, filter))) e.key,
   };
 
-  /// Every distinct word in any note, with the notes it occurs in.
-  Map<String, Set<String>> get vocabulary {
+  /// Every distinct word in any note, with the number of notes it occurs
+  /// in.
+  Map<String, int> get vocabulary {
     final cached = _vocabulary;
     if (cached != null) return cached;
-    final vocabulary = <String, Set<String>>{};
-    _notes.forEach((path, note) {
+    final vocabulary = <String, int>{};
+    for (final note in _notes.values) {
       for (final w in note.words) {
-        (vocabulary[w] ??= {}).add(path);
+        vocabulary[w] = (vocabulary[w] ?? 0) + 1;
       }
-    });
+    }
     return _vocabulary = vocabulary;
   }
 }
@@ -223,12 +289,7 @@ Future<Map<String, IndexedNote>> _readInBackground(
 ) async {
   // Lets a store that talks to the platform (SAF) use its channel there.
   final token = RootIsolateToken.instance;
-  // Phones have several cores; a few isolates read and parse in parallel.
-  // Small batches are not worth starting more than one.
-  final isolates = (paths.length ~/ 250).clamp(
-    1,
-    (Platform.numberOfProcessors - 1).clamp(1, 4),
-  );
+  final isolates = _workers(paths.length);
   final size = (paths.length / isolates).ceil();
   final shares = await Future.wait([
     for (var start = 0; start < paths.length; start += size)
@@ -238,6 +299,32 @@ Future<Map<String, IndexedNote>> _readInBackground(
   ]);
   return {for (final share in shares) ...share};
 }
+
+/// Isolates to read or prepare [notes] notes on: phones have several cores,
+/// so a few work in parallel; small batches are not worth more than one.
+int _workers(int notes) =>
+    (notes ~/ 250).clamp(1, (Platform.numberOfProcessors - 1).clamp(1, 4));
+
+/// Prepares one share of [NoteIndex.prepared] on its own isolate, with the
+/// share's vocabulary. Top-level, so the closure captures only [share].
+Future<(Map<String, IndexedNote>, Map<String, int>)> _prepareShare(
+  Map<String, (String, String)> share,
+) => Isolate.run(() {
+  final notes = <String, IndexedNote>{};
+  final vocabulary = <String, int>{};
+  share.forEach((path, entry) {
+    final (text, version) = entry;
+    final note = IndexedNote(
+      text,
+      version: version.isEmpty ? null : version,
+    )._prepared();
+    notes[path] = note;
+    for (final w in note.words) {
+      vocabulary[w] = (vocabulary[w] ?? 0) + 1;
+    }
+  });
+  return (notes, vocabulary);
+});
 
 Future<Map<String, IndexedNote>> _readShare(
   VersionedNoteStore store,

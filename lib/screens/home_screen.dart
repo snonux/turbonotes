@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../services/active_store.dart';
 import '../services/app_version.dart';
 import '../services/directory_note_store.dart';
+import '../services/index_cache.dart';
 import '../services/listing_cache.dart';
 import '../services/note_export.dart';
 import '../services/note_index.dart';
@@ -56,6 +57,7 @@ class HomeScreen extends StatefulWidget {
     this.shareService = const ShareService(),
     this.syncRunner,
     this.listingCache,
+    this.indexCache,
     this.links,
   });
 
@@ -65,6 +67,10 @@ class HomeScreen extends StatefulWidget {
   /// Remembers the folder's listing, so the next start shows the sidebar
   /// before the folder has been listed again. None in tests.
   final ListingCache? listingCache;
+
+  /// Keeps the search and tag index between starts, so a start only reads
+  /// the notes that changed. None in tests.
+  final IndexCache? indexCache;
 
   final PreferencesService preferences;
 
@@ -105,6 +111,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Every note's text, for search and tags; null until first read.
   final ValueNotifier<NoteIndex?> _index = ValueNotifier(null);
   int _indexGeneration = 0;
+
+  /// The index the [IndexCache] kept from the last run, for the store
+  /// opened last; it stands in until the folder has been read.
+  Future<NoteIndex?>? _cachedIndex;
 
   /// Only notes with this tag (or one below it) show in the tree.
   String? _tagFilter;
@@ -276,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _index.value = null;
         _tagFilter = null;
         if (generation != _reloadGeneration) return;
+        _cachedIndex = _loadCachedIndex(_store!);
         await _showCachedListing(_store!, generation);
       }
       if (generation != _reloadGeneration) return;
@@ -316,6 +327,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted || generation != _reloadGeneration) return;
       _indexGeneration++;
       _index.value = null;
+      _cachedIndex = null;
       setState(() {
         _error = e;
         _setNotes(const []);
@@ -357,6 +369,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _setNotes(cached));
   }
 
+  /// On start, the index kept from the last run: tags and search work with
+  /// it straight away, and the first read of the folder only reads the
+  /// notes that changed since. An editor's [_cachedText] is safe with it,
+  /// as the editor checks the disk behind it.
+  Future<NoteIndex?> _loadCachedIndex(NoteStore store) async {
+    final cache = widget.indexCache;
+    if (cache == null || store is! VersionedNoteStore) return null;
+    final generation = _indexGeneration;
+    NoteIndex? cached;
+    try {
+      cached = await cache.load(_cacheKey(store));
+    } catch (_) {
+      return null;
+    }
+    // Shown unless the folder was read (or swapped) meanwhile.
+    if (cached != null &&
+        mounted &&
+        identical(store, _store) &&
+        generation == _indexGeneration &&
+        _index.value == null) {
+      _index.value = cached;
+      setState(() => _tree = _buildTree());
+    }
+    return cached;
+  }
+
   /// Reads the notes for search and tags, in the background. Notes whose
   /// version did not change since the last read are kept, not read again.
   /// The previous index stays usable meanwhile; a newer reload wins.
@@ -366,13 +404,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Map<String, String>? versions,
   ) async {
     final generation = ++_indexGeneration;
+    // On start the index kept from the last run is the base, so only
+    // changed notes are read.
+    var base = _index.value;
+    final cachedIndex = _cachedIndex;
+    if (base == null && cachedIndex != null) {
+      final cached = await cachedIndex;
+      if (!mounted || generation != _indexGeneration) return;
+      base = _index.value ?? (identical(store, _store) ? cached : null);
+    }
     final index = await NoteIndex.load(
       store,
       notes,
       versions: versions,
-      previous: _index.value,
+      previous: base,
     );
     if (!mounted || generation != _indexGeneration) return;
+    if (index.changes > 0) widget.indexCache?.save(_cacheKey(store), index);
     // Keep whatever the open editor holds as saved: it may be newer than a
     // read that raced a save.
     final previous = _index.value;
@@ -961,6 +1009,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         // Drop stale cached text before building the post-sync search index.
         _indexGeneration++;
         _index.value = null;
+        _cachedIndex = null;
         await _reload(afterSync: true);
         if (mounted) setState(() => _syncing = false);
       }

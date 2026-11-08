@@ -1,0 +1,1 @@
+Faster start on large notes folders: the search and tag index is kept between starts, so TurboNotes only reads the notes that changed since, and tags and search are ready almost at once. On Android, indexing no longer holds up opening or saving a note. The first typo-tolerant search on many notes is quicker too.
