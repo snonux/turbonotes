@@ -98,7 +98,7 @@ class _Term {
   /// Words of the notes within [typos] of this term, with their distance.
   Map<String, int>? near;
 
-  void findNear(Map<String, Set<String>> vocabulary) {
+  void findNear(Map<String, int> vocabulary) {
     final found = <String, int>{};
     if (typos > 0) {
       for (final w in vocabulary.keys) {

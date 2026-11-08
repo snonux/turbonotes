@@ -61,7 +61,17 @@ Toolchain: JDK **17 or 21** only. Gradle 8.14 rejects JDK 25 outright.
   the batched `readMany` call) and keeping unchanged notes on a refresh,
   and `ListingCache` showing the last listing at once on start. Keep heavy
   per-note work off the UI isolate, and keep the Tags section collapsed by
-  default so its tree is only built on demand.
+  default so its tree is only built on demand. `IndexCache`
+  (`index_cache.dart`) keeps the index of the folder opened last (text and
+  version per note, one binary file in app support data) between starts:
+  `HomeScreen` loads it beside the scan, shows it at once, and uses it as
+  the `previous` index of the first load, so a start only reads changed
+  notes; a load with `changes` saves it again. Nothing on screen waits
+  for the index. After a sync the cache is not used (a full read, as
+  before). The vocabulary counts notes per word and is carried across
+  refreshes. On Android, `readMany` runs on its own executor, so indexing
+  never queues ahead of opening or saving a note. Benchmark:
+  `flutter test tool/startup_bench_test.dart` (`NOTES=`, `TAGS=`).
 - `lib/services/note_export.dart` -- renders a note offscreen (its own
   `PipelineOwner`/`BuildOwner`; GlobalKeys do not work there) to one PNG or
   to an A4 PDF of page images, written by hand with `dart:io`'s zlib.

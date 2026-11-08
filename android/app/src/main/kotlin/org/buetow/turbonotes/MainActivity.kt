@@ -51,6 +51,7 @@ class MainActivity : FlutterActivity() {
     // Document providers can be slow (cloud-backed ones especially), so all
     // note I/O runs off the main thread, one request at a time and in order.
     private var safExecutor: ExecutorService? = null
+    private var safBulkExecutor: ExecutorService? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -73,13 +74,17 @@ class MainActivity : FlutterActivity() {
         val notes = SafNotes(contentResolver)
         val executor = Executors.newSingleThreadExecutor { task -> Thread(task, "turbonotes-saf") }
         safExecutor = executor
+        // Indexing reads every note of a large folder in batches; on its own
+        // thread it never holds up opening, saving or listing a note.
+        val bulk = Executors.newSingleThreadExecutor { task -> Thread(task, "turbonotes-saf-index") }
+        safBulkExecutor = bulk
         val main = Handler(Looper.getMainLooper())
         MethodChannel(messenger, safNotesChannelName).setMethodCallHandler { call, result ->
             if (call.method !in setOf("list", "scan", "read", "readMany", "write", "replaceForSync", "create", "delete", "rename", "readBytes", "createBytes")) {
                 result.notImplemented()
                 return@setMethodCallHandler
             }
-            executor.execute {
+            (if (call.method == "readMany") bulk else executor).execute {
                 try {
                     val tree = call.requireString("treeUri")
                     val value: Any? = when (call.method) {
@@ -269,6 +274,8 @@ class MainActivity : FlutterActivity() {
         // Let writes already handed to the provider finish.
         safExecutor?.shutdown()
         safExecutor = null
+        safBulkExecutor?.shutdownNow()
+        safBulkExecutor = null
         playerControl?.dispose()
         playerControl = null
         super.cleanUpFlutterEngine(flutterEngine)

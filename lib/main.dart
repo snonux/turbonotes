@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'screens/external_note_page.dart';
 import 'screens/home_screen.dart';
 import 'services/external_document.dart';
+import 'services/index_cache.dart';
 import 'services/listing_cache.dart';
 import 'services/note_link.dart';
 import 'services/preferences.dart';
@@ -93,6 +94,7 @@ class _TurboNotesAppState extends State<TurboNotesApp> {
           : HomeScreen(
               preferences: widget.preferences,
               listingCache: FileListingCache(),
+              indexCache: FileIndexCache(),
               links: widget.links,
             ),
     );
